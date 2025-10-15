@@ -134,7 +134,7 @@ def save_transcription(text, audio_path, output_path=None):
     """Save transcription to file."""
     if output_path is None:
         # Create transcriptions directory if it doesn't exist
-        transcriptions_dir = Path("transcriptions")
+        transcriptions_dir = Path("../Transcriptions")
         transcriptions_dir.mkdir(exist_ok=True)
 
         # Generate output filename
