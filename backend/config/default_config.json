@@ -1,0 +1,12 @@
+{
+    "project_name": "",
+    "project_description": "",
+    "tech_stack": [],
+    "business_assumptions": "",
+    "push_to_talk_key": "ctrl+shift+d",
+    "language": "pl",
+    "llm_provider": "claude",
+    "tts_enabled": true,
+    "duck_position": "bottom_left",
+    "duck_size": 120
+}
