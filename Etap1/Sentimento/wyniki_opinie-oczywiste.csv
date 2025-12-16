@@ -1,0 +1,11 @@
+id,tresc,ROBERTA_label,ROBERTA_score,ROBERTA_time_sec,HERBERT_label,HERBERT_score,HERBERT_time_sec
+1,"Łóżko było bardzo wygodne, a obsługa przemiła. Śniadania to absolutne mistrzostwo świata! Na pewno tu wrócimy.",positive,0.9455167055130005,1.1015626999999997,positive,0.9986501336097717,0.05827930000000059
+2,"Niestety w łazience śmierdziało wilgocią, a pan w recepcji zachowywał się, jakby pracował tam za karę. Nie polecam.",negative,0.9441381692886353,0.051602100000000206,negative,0.9902058243751526,0.05321020000000054
+3,"Hotel znajduje się blisko centrum, co jest plusem, ale hałas z ulicy nie pozwalał spać w nocy. Standard adekwatny do ceny.",positive,0.6374743580818176,0.05235110000000098,positive,0.9175230860710144,0.05917660000000069
+4,"Pizza była spalona, a na zamówienie czekaliśmy prawie godzinę. Nigdy więcej tam nie zjem.",negative,0.8638681173324585,0.04243239999999915,negative,0.9958653450012207,0.055256099999999364
+5,"Najlepsze sushi w mieście! Ryba świeża, ryż idealnie doprawiony. Kelnerka bardzo pomocna.",positive,0.9015839099884033,0.04921920000000135,positive,0.9992945194244385,0.05747780000000091
+6,"Jedzenie poprawne, ale porcje dość małe jak na tę cenę. Wystrój lokalu całkiem przyjemny.",positive,0.6181407570838928,0.04336349999999989,positive,0.9855068922042847,0.051499599999999646
+7,"Spójrz na ten subtelny odcień bieli. Gustowna grubość. O boże, ma nawet znak wodny... Nie mogę uwierzyć, że Bryce woli wizytówkę Van Pattena od mojej.",positive,0.8313968777656555,0.0685089000000012,positive,0.763935923576355,0.08091319999999946
+8,"Jutro ma padać deszcz, więc chyba odpuszczę spacer i zostanę w domu z książką.",negative,0.4580814242362976,0.049054399999999276,neutral,0.7726781964302063,0.05120210000000114
+9,"Nareszcie piątek! Tydzień był ciężki, ale wizja weekendu od razu poprawia mi humor.",positive,0.9141299724578857,0.04929119999999898,positive,0.9944445490837097,0.04780159999999967
+10,"Mój stary laptop znowu się zawiesił w trakcie aktualizacji, mam ochotę wyrzucić go przez okno.",negative,0.8912575840950012,0.056344199999999844,negative,0.7936222553253174,0.05512850000000036

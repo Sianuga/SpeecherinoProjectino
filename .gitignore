@@ -205,9 +205,9 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
-/Data
-Data/Text/Text_1.txt
-Transcriptions/Audio_11_whisper.txt
-Whisper/results/analysis_20251022_205600.txt
-Whisper/results/analysis_20251022_205719.txt
-Whisper/results.csv
+/Etap1/Data
+Etap1/Data/Text/Text_1.txt
+Etap1/Transcriptions/Audio_11_whisper.txt
+Etap1/Whisper/results/analysis_20251022_205600.txt
+Etap1/Whisper/results/analysis_20251022_205719.txt
+Etap1/Whisper/results.csv

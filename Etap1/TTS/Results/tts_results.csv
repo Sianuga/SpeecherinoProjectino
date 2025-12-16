@@ -1,0 +1,2 @@
+timestamp,model,text_snippet,speed,duration_s,rtf,output_file,status
+2025-11-05T22:36:35,tts_models/multilingual/multi-dataset/xtts_v2,23450. Spotkanie odbędzie się 12. grudnia 2025 roku o godzin...,1.0,69.89,2.9,Results/test1_speed1.0_20251105_223525.wav,OK ✅
