@@ -20,17 +20,22 @@ class ProjectDialog(QDialog):
     
     def setup_ui(self):
         layout = QVBoxLayout(self)
+        layout.setSpacing(12)
         
         # Nazwa projektu
         name_layout = QHBoxLayout()
-        name_layout.addWidget(QLabel("Nazwa projektu:"))
+        name_label = QLabel("Nazwa projektu:")
+        name_label.setStyleSheet("color: #e0e0e0; font-weight: bold;")
+        name_layout.addWidget(name_label)
         self.name_edit = QLineEdit()
         self.name_edit.setPlaceholderText("np. E-commerce Backend")
         name_layout.addWidget(self.name_edit)
         layout.addLayout(name_layout)
         
         # Opis projektu
-        layout.addWidget(QLabel("Opis projektu:"))
+        desc_label = QLabel("Opis projektu:")
+        desc_label.setStyleSheet("color: #e0e0e0; font-weight: bold;")
+        layout.addWidget(desc_label)
         self.description_edit = QTextEdit()
         self.description_edit.setPlaceholderText(
             "Opisz nad czym pracujesz, jaki jest cel projektu, "
@@ -66,7 +71,9 @@ class ProjectDialog(QDialog):
         layout.addWidget(tech_group)
         
         # Założenia biznesowe
-        layout.addWidget(QLabel("Główne założenia biznesowe:"))
+        business_label = QLabel("Główne założenia biznesowe:")
+        business_label.setStyleSheet("color: #e0e0e0; font-weight: bold;")
+        layout.addWidget(business_label)
         self.business_edit = QTextEdit()
         self.business_edit.setPlaceholderText(
             "Opisz kluczowe wymagania biznesowe, ograniczenia, "
@@ -76,7 +83,9 @@ class ProjectDialog(QDialog):
         layout.addWidget(self.business_edit)
         
         # Dodatkowy kontekst
-        layout.addWidget(QLabel("Dodatkowy kontekst (opcjonalnie):"))
+        context_label = QLabel("Dodatkowy kontekst (opcjonalnie):")
+        context_label.setStyleSheet("color: #b0b0b0;")
+        layout.addWidget(context_label)
         self.context_edit = QTextEdit()
         self.context_edit.setPlaceholderText(
             "Dodatkowe informacje które mogą pomóc kaczce zrozumieć projekt..."
@@ -94,6 +103,16 @@ class ProjectDialog(QDialog):
         
         save_btn = QPushButton("Zapisz")
         save_btn.setDefault(True)
+        save_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #4a6a4a;
+                border-color: #5a7a5a;
+            }
+            QPushButton:hover {
+                background-color: #5a7a5a;
+                border-color: #ffd54f;
+            }
+        """)
         save_btn.clicked.connect(self.save_project)
         buttons_layout.addWidget(save_btn)
         
@@ -160,18 +179,24 @@ class SettingsDialog(QDialog):
         # Tab: Ogólne
         general_tab = QWidget()
         general_layout = QFormLayout(general_tab)
+        general_layout.setSpacing(15)
         
+        hotkey_label = QLabel("Skrót Push-to-Talk:")
+        hotkey_label.setStyleSheet("color: #e0e0e0;")
         self.hotkey_edit = QLineEdit()
         self.hotkey_edit.setPlaceholderText("ctrl+shift+d")
-        general_layout.addRow("Skrót Push-to-Talk:", self.hotkey_edit)
+        general_layout.addRow(hotkey_label, self.hotkey_edit)
         
+        size_label = QLabel("Rozmiar kaczki:")
+        size_label.setStyleSheet("color: #e0e0e0;")
         self.duck_size_spin = QSpinBox()
         self.duck_size_spin.setRange(80, 200)
         self.duck_size_spin.setValue(120)
-        general_layout.addRow("Rozmiar kaczki:", self.duck_size_spin)
+        general_layout.addRow(size_label, self.duck_size_spin)
         
         self.tts_checkbox = QCheckBox("Włącz odpowiedzi głosowe (TTS)")
         self.tts_checkbox.setChecked(True)
+        self.tts_checkbox.setStyleSheet("color: #e0e0e0;")
         general_layout.addRow(self.tts_checkbox)
         
         tabs.addTab(general_tab, "Ogólne")
@@ -179,24 +204,33 @@ class SettingsDialog(QDialog):
         # Tab: API
         api_tab = QWidget()
         api_layout = QFormLayout(api_tab)
+        api_layout.setSpacing(15)
         
+        anthropic_label = QLabel("Anthropic API Key:")
+        anthropic_label.setStyleSheet("color: #e0e0e0;")
         self.anthropic_key = QLineEdit()
         self.anthropic_key.setEchoMode(QLineEdit.EchoMode.Password)
         self.anthropic_key.setPlaceholderText("sk-ant-...")
-        api_layout.addRow("Anthropic API Key:", self.anthropic_key)
+        api_layout.addRow(anthropic_label, self.anthropic_key)
         
+        google_label = QLabel("Google API Key:")
+        google_label.setStyleSheet("color: #e0e0e0;")
         self.google_key = QLineEdit()
         self.google_key.setEchoMode(QLineEdit.EchoMode.Password)
         self.google_key.setPlaceholderText("AIza...")
-        api_layout.addRow("Google API Key:", self.google_key)
+        api_layout.addRow(google_label, self.google_key)
         
+        elevenlabs_label = QLabel("ElevenLabs API Key:")
+        elevenlabs_label.setStyleSheet("color: #e0e0e0;")
         self.elevenlabs_key = QLineEdit()
         self.elevenlabs_key.setEchoMode(QLineEdit.EchoMode.Password)
-        api_layout.addRow("ElevenLabs API Key:", self.elevenlabs_key)
+        api_layout.addRow(elevenlabs_label, self.elevenlabs_key)
         
+        provider_label = QLabel("Dostawca LLM:")
+        provider_label.setStyleSheet("color: #e0e0e0;")
         self.llm_provider = QComboBox()
         self.llm_provider.addItems(["claude", "gemini"])
-        api_layout.addRow("Dostawca LLM:", self.llm_provider)
+        api_layout.addRow(provider_label, self.llm_provider)
         
         tabs.addTab(api_tab, "API Keys")
         
@@ -212,6 +246,16 @@ class SettingsDialog(QDialog):
         
         save_btn = QPushButton("Zapisz")
         save_btn.setDefault(True)
+        save_btn.setStyleSheet("""
+            QPushButton {
+                background-color: #4a6a4a;
+                border-color: #5a7a5a;
+            }
+            QPushButton:hover {
+                background-color: #5a7a5a;
+                border-color: #ffd54f;
+            }
+        """)
         save_btn.clicked.connect(self.save_settings)
         buttons_layout.addWidget(save_btn)
         

@@ -18,20 +18,16 @@ def create_duck_icon(size=64):
     painter = QPainter(pixmap)
     painter.setRenderHint(QPainter.RenderHint.Antialiasing)
     
-    # Ciało
     painter.setBrush(QColor(255, 213, 79))
     painter.setPen(QColor(200, 160, 50))
     painter.drawEllipse(8, 20, size - 16, size - 28)
     
-    # Głowa
     head_size = size // 3
     painter.drawEllipse(size // 2 - head_size // 2, 8, head_size, head_size)
     
-    # Dziób
     painter.setBrush(QColor(255, 152, 0))
     painter.drawEllipse(size // 2 + head_size // 4, 14, 12, 8)
     
-    # Oko
     painter.setBrush(QColor(0, 0, 0))
     painter.drawEllipse(size // 2 - 2, 14, 5, 5)
     
@@ -65,6 +61,7 @@ class MainWindow(QMainWindow):
         
         title_label = QLabel("🦆 Rubber Duck Assistant")
         title_label.setFont(QFont("Arial", 18, QFont.Weight.Bold))
+        title_label.setStyleSheet("color: #ffd54f;")
         header_layout.addWidget(title_label)
         
         header_layout.addStretch()
@@ -81,12 +78,12 @@ class MainWindow(QMainWindow):
         
         self.active_project_label = QLabel("Brak aktywnego projektu")
         self.active_project_label.setFont(QFont("Arial", 12))
-        self.active_project_label.setStyleSheet("color: #666;")
+        self.active_project_label.setStyleSheet("color: #aaaaaa;")
         active_layout.addWidget(self.active_project_label)
         
         self.active_project_desc = QLabel("")
         self.active_project_desc.setWordWrap(True)
-        self.active_project_desc.setStyleSheet("color: #888; font-size: 11px;")
+        self.active_project_desc.setStyleSheet("color: #888888; font-size: 11px;")
         active_layout.addWidget(self.active_project_desc)
         
         active_group.setLayout(active_layout)
@@ -123,24 +120,25 @@ class MainWindow(QMainWindow):
         projects_group.setLayout(projects_layout)
         layout.addWidget(projects_group)
         
-        # Informacje
+        # Informacje - poprawione kolory
         info_frame = QFrame()
         info_frame.setStyleSheet("""
             QFrame {
-                background-color: #f0f7ff;
+                background-color: #3d4a3d;
                 border-radius: 8px;
                 padding: 10px;
+                border: 1px solid #4a5a4a;
             }
         """)
         info_layout = QVBoxLayout(info_frame)
         
         hotkey = self.config_manager.config.get("push_to_talk_key", "ctrl+shift+d")
-        info_label = QLabel(f"💡 Skrót Push-to-Talk: <b>{hotkey}</b>")
-        info_label.setStyleSheet("color: #333;")
+        info_label = QLabel(f"💡 Skrót Push-to-Talk: <b style='color: #ffd54f;'>{hotkey}</b>")
+        info_label.setStyleSheet("color: #c0c0c0;")
         info_layout.addWidget(info_label)
         
         info_label2 = QLabel("Kliknij w kaczkę lub użyj skrótu aby rozpocząć rozmowę")
-        info_label2.setStyleSheet("color: #666; font-size: 11px;")
+        info_label2.setStyleSheet("color: #a0a0a0; font-size: 11px;")
         info_layout.addWidget(info_label2)
         
         layout.addWidget(info_frame)
@@ -220,7 +218,7 @@ class MainWindow(QMainWindow):
         active = self.config_manager.get_active_project()
         if active:
             self.active_project_label.setText(f"📂 {active['name']}")
-            self.active_project_label.setStyleSheet("color: #2e7d32; font-weight: bold;")
+            self.active_project_label.setStyleSheet("color: #81c784; font-weight: bold;")
             
             desc_parts = []
             if active.get("tech_stack"):
@@ -232,11 +230,13 @@ class MainWindow(QMainWindow):
                 desc_parts.append(desc)
             
             self.active_project_desc.setText(" | ".join(desc_parts))
+            self.active_project_desc.setStyleSheet("color: #a0a0a0; font-size: 11px;")
             self.active_action.setText(f"Projekt: {active['name']}")
         else:
             self.active_project_label.setText("Brak aktywnego projektu")
-            self.active_project_label.setStyleSheet("color: #666;")
+            self.active_project_label.setStyleSheet("color: #aaaaaa;")
             self.active_project_desc.setText("Dodaj projekt i aktywuj go aby rozpocząć")
+            self.active_project_desc.setStyleSheet("color: #888888; font-size: 11px;")
             self.active_action.setText("Brak aktywnego projektu")
     
     def add_project(self):

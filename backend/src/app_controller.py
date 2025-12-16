@@ -9,20 +9,35 @@ from .hotkey_manager import HotkeyManager
 from .duck_widget import DuckWidget
 from .main_window import MainWindow
 
+# Nowe moduły (placeholdery)
+from .stt_module import STTManager, WhisperSTT, GoogleSTT
+from .tts_module import TTSManager, ElevenLabsTTS, GoogleTTS
+from .llm_module import LLMManager, ClaudeLLM, GeminiLLM, ProjectContext
+from .sentiment_analyzer import SentimentManager
+
 
 class ProcessingWorker(QThread):
     """Worker do przetwarzania audio w tle"""
     finished = pyqtSignal(str)
     error = pyqtSignal(str)
     
-    def __init__(self, audio_path: str, config_manager: ConfigManager):
+    def __init__(self, audio_path: str, config_manager: ConfigManager,
+                 stt_manager: STTManager, llm_manager: LLMManager,
+                 sentiment_manager: SentimentManager):
         super().__init__()
         self.audio_path = audio_path
         self.config_manager = config_manager
+        self.stt_manager = stt_manager
+        self.llm_manager = llm_manager
+        self.sentiment_manager = sentiment_manager
     
     def run(self):
         try:
-            # TODO: Tutaj będzie integracja z STT i LLM
+            # TODO: Pełna implementacja pipeline'u
+            # 1. STT - transkrypcja audio
+            # 2. Analiza sentymentu
+            # 3. LLM - generowanie odpowiedzi
+            
             # Na razie symulacja
             time.sleep(1)
             
@@ -49,15 +64,64 @@ class AppController(QObject):
     def __init__(self):
         super().__init__()
         
+        # Podstawowe komponenty
         self.config_manager = ConfigManager()
         self.audio_recorder = AudioRecorder()
         self.hotkey_manager = HotkeyManager()
         
+        # Nowe moduły AI
+        self.stt_manager = STTManager()
+        self.tts_manager = TTSManager()
+        self.llm_manager = LLMManager()
+        self.sentiment_manager = SentimentManager()
+        
+        # UI
         self.duck_widget: Optional[DuckWidget] = None
         self.main_window: Optional[MainWindow] = None
         self.processing_worker: Optional[ProcessingWorker] = None
         
         self.is_listening = False
+        
+        # Inicjalizacja modułów AI
+        self._setup_ai_modules()
+    
+    def _setup_ai_modules(self):
+        """Konfiguruje moduły AI na podstawie konfiguracji"""
+        api_keys = self.config_manager.config.get("api_keys", {})
+        
+        # STT
+        self.stt_manager.register_provider(
+            "whisper", 
+            WhisperSTT(api_key=api_keys.get("openai", ""))
+        )
+        self.stt_manager.register_provider(
+            "google",
+            GoogleSTT(api_key=api_keys.get("google", ""))
+        )
+        
+        # TTS
+        self.tts_manager.register_provider(
+            "elevenlabs",
+            ElevenLabsTTS(api_key=api_keys.get("elevenlabs", ""))
+        )
+        self.tts_manager.register_provider(
+            "google",
+            GoogleTTS(api_key=api_keys.get("google", ""))
+        )
+        
+        # LLM
+        self.llm_manager.register_provider(
+            "claude",
+            ClaudeLLM(api_key=api_keys.get("anthropic", ""))
+        )
+        self.llm_manager.register_provider(
+            "gemini",
+            GeminiLLM(api_key=api_keys.get("google", ""))
+        )
+        
+        # Ustaw aktywnych dostawców na podstawie konfiguracji
+        llm_provider = self.config_manager.config.get("llm_provider", "claude")
+        self.llm_manager.set_active_provider(llm_provider)
     
     def initialize(self):
         """Inicjalizuje wszystkie komponenty UI"""
@@ -77,6 +141,10 @@ class AppController(QObject):
         self.listening_started.connect(self._on_listening_started)
         self.listening_stopped.connect(self._on_listening_stopped)
         self.response_ready.connect(self._on_response_ready)
+        
+        # Callbacks dla TTS
+        self.tts_manager.on_speaking_start = lambda: self.duck_widget.set_speaking(True)
+        self.tts_manager.on_speaking_end = lambda: self.duck_widget.set_idle()
     
     def show(self):
         """Pokazuje komponenty UI"""
@@ -128,7 +196,13 @@ class AppController(QObject):
         audio_path = self.audio_recorder.stop_recording()
         
         # Przetwarzanie w tle
-        self.processing_worker = ProcessingWorker(audio_path, self.config_manager)
+        self.processing_worker = ProcessingWorker(
+            audio_path, 
+            self.config_manager,
+            self.stt_manager,
+            self.llm_manager,
+            self.sentiment_manager
+        )
         self.processing_worker.finished.connect(self._on_processing_finished)
         self.processing_worker.error.connect(self._on_processing_error)
         self.processing_worker.start()
@@ -147,11 +221,13 @@ class AppController(QObject):
         """Obsługuje odpowiedź z przetwarzania"""
         self.response_ready.emit(response)
         
-        # TODO: TTS - odtworzenie odpowiedzi głosem
+        # TTS - odtworzenie odpowiedzi głosem (jeśli włączone)
+        if self.config_manager.config.get("tts_enabled", True):
+            # TODO: self.tts_manager.speak(response)
+            pass
         
         # Po "wypowiedzeniu" wracamy do idle
         if self.duck_widget:
-            # Symulacja czasu mówienia
             QThread.msleep(2000)
             self.duck_widget.set_idle()
     
@@ -164,7 +240,6 @@ class AppController(QObject):
     def _on_response_ready(self, response: str):
         """Obsługuje gotową odpowiedź"""
         print(f"Duck says: {response}")
-        # TODO: Wyświetlenie w UI / TTS
     
     def cleanup(self):
         """Sprzątanie przed zamknięciem"""
