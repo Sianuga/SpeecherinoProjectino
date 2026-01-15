@@ -1,29 +1,14 @@
 """
 Moduł LLM (Large Language Model)
-Odpowiedzialny za interakcję z modelami językowymi.
-
-Planowane implementacje:
-- Claude (Anthropic)
-- Gemini (Google)
+Integracja z Google Gemini API.
 """
 
-from abc import ABC, abstractmethod
-from typing import Optional, Generator
+import os
+from typing import Optional, List
 from dataclasses import dataclass, field
-from enum import Enum
 
-
-class MessageRole(Enum):
-    SYSTEM = "system"
-    USER = "user"
-    ASSISTANT = "assistant"
-
-
-@dataclass
-class Message:
-    """Pojedyncza wiadomość w konwersacji"""
-    role: MessageRole
-    content: str
+from google import genai
+from google.genai import types
 
 
 @dataclass
@@ -31,262 +16,271 @@ class ProjectContext:
     """Kontekst projektu dla LLM"""
     name: str
     description: str = ""
-    tech_stack: list[str] = field(default_factory=list)
+    tech_stack: List[str] = field(default_factory=list)
     business_assumptions: str = ""
     additional_context: str = ""
-    
-    def to_prompt(self) -> str:
-        """Konwertuje kontekst na tekst promptu"""
-        parts = [f"Projekt: {self.name}"]
-        
+
+    def to_prompt_section(self) -> str:
+        """Konwertuje kontekst projektu na sekcję promptu"""
+        lines = [f"Projekt: {self.name}"]
+
         if self.description:
-            parts.append(f"Opis: {self.description}")
-        
+            lines.append(f"Opis: {self.description}")
+
         if self.tech_stack:
-            parts.append(f"Stack technologiczny: {', '.join(self.tech_stack)}")
-        
+            lines.append(f"Stack technologiczny: {', '.join(self.tech_stack)}")
+
         if self.business_assumptions:
-            parts.append(f"Założenia biznesowe: {self.business_assumptions}")
-        
+            lines.append(f"Założenia biznesowe: {self.business_assumptions}")
+
         if self.additional_context:
-            parts.append(f"Dodatkowy kontekst: {self.additional_context}")
-        
-        return "\n".join(parts)
+            lines.append(f"Dodatkowy kontekst: {self.additional_context}")
+
+        return "\n".join(lines)
 
 
 @dataclass
 class LLMResponse:
     """Odpowiedź z modelu LLM"""
     content: str
-    model: str = ""
-    tokens_used: int = 0
-    finish_reason: str = ""
     success: bool = True
     error_message: str = ""
+    model: str = ""
 
 
-class LLMProvider(ABC):
-    """Bazowa klasa dla dostawców LLM"""
-    
-    @abstractmethod
-    def generate(
-        self,
-        messages: list[Message],
-        project_context: Optional[ProjectContext] = None,
-        sentiment: Optional[str] = None,
-        max_tokens: int = 1024,
-        temperature: float = 0.7
-    ) -> LLMResponse:
+class PromptBuilder:
+    """
+    Buduje prompt kontekstowy dla LLM.
+
+    Składa się z:
+    1. Persona - opis roli i zachowania (Senior Mentor Dev)
+    2. Kontekst projektu - informacje o projekcie użytkownika
+    3. Historia rozmowy - poprzednie wiadomości z sesji
+    4. Informacja o sentymencie - emocjonalny stan użytkownika
+    """
+
+    PERSONA = """Jesteś Rubber Duck Assistant - doświadczonym Senior Developerem i Mentorem.
+
+## Twoja rola:
+- Pomagasz programistom rozwiązywać problemy metodą "rubber duck debugging"
+- Słuchasz opisu problemu i zadajesz pytania naprowadzające
+- NIE dajesz od razu gotowych rozwiązań - pomagasz użytkownikowi samemu dojść do odpowiedzi
+- Sugerujesz biblioteki, frameworki i wzorce projektowe gdy to pomocne
+
+## Twój styl:
+- Odpowiadasz po polsku, zwięźle i rzeczowo
+- Jesteś konkretny i na temat
+- Jeśli nie jesteś pewny o co chodzi użytkownikowi - ZAWSZE najpierw dopytaj
+- Zadajesz jedno pytanie na raz
+- Unikasz zbędnego gadania - liczy się treść
+
+## Zasady:
+- Jeśli pytanie jest niejasne - zacznij od dopytania "Czy dobrze rozumiem, że...?" lub "Możesz doprecyzować...?"
+- Zawsze odnosisz się do kontekstu projektu użytkownika
+- Pamiętasz o czym była rozmowa w tej sesji
+- Jeśli nie znasz odpowiedzi - mówisz to wprost"""
+
+    SENTIMENT_INSTRUCTIONS = {
+        "negative": """
+UWAGA: Użytkownik wydaje się sfrustrowany.
+- Okaż zrozumienie krótko ("Rozumiem frustrację")
+- Bądź szczególnie konkretny i pomocny
+- Możesz zasugerować przerwę jeśli problem jest złożony""",
+
+        "positive": """
+Użytkownik jest pozytywnie nastawiony - możesz być bardziej bezpośredni.""",
+
+        "neutral": ""
+    }
+
+    def __init__(self):
+        self.project_context: Optional[ProjectContext] = None
+        self.conversation_history: List[dict] = []
+        self.current_sentiment: Optional[str] = None
+        self.sentiment_confidence: float = 0.0
+
+    def set_project_context(self, project: dict):
+        """Ustawia kontekst projektu"""
+        self.project_context = ProjectContext(
+            name=project.get("name", "Nieznany projekt"),
+            description=project.get("description", ""),
+            tech_stack=project.get("tech_stack", []),
+            business_assumptions=project.get("business_assumptions", ""),
+            additional_context=project.get("additional_context", "")
+        )
+
+    def set_conversation_history(self, history: List[dict]):
+        """Ustawia historię konwersacji"""
+        self.conversation_history = history
+
+    def set_sentiment(self, sentiment: str, confidence: float = 0.0):
+        """Ustawia wykryty sentyment"""
+        self.current_sentiment = sentiment
+        self.sentiment_confidence = confidence
+
+    def build_system_prompt(self) -> str:
+        """Buduje pełny system prompt"""
+        sections = [self.PERSONA]
+
+        # Kontekst projektu
+        if self.project_context:
+            sections.append(f"\n## Kontekst projektu użytkownika:\n{self.project_context.to_prompt_section()}")
+
+        # Instrukcje sentymentu
+        if self.current_sentiment and self.sentiment_confidence > 0.6:
+            sentiment_instruction = self.SENTIMENT_INSTRUCTIONS.get(self.current_sentiment, "")
+            if sentiment_instruction:
+                sections.append(sentiment_instruction)
+
+        return "\n".join(sections)
+
+    def build_contents_for_gemini(self, user_message: str) -> List[types.Content]:
         """
-        Generuje odpowiedź na podstawie wiadomości.
-        
+        Buduje listę contents dla Gemini API.
+
         Args:
-            messages: Lista wiadomości konwersacji
-            project_context: Opcjonalny kontekst projektu
-            sentiment: Wykryty sentyment użytkownika
-            max_tokens: Maksymalna liczba tokenów odpowiedzi
-            temperature: Temperatura generowania
-            
+            user_message: Bieżąca wiadomość użytkownika
+
+        Returns:
+            Lista types.Content dla API
+        """
+        contents = []
+
+        # Historia konwersacji
+        for msg in self.conversation_history:
+            role = msg["role"]
+            content = msg["content"]
+
+            if role == "user":
+                contents.append(types.UserContent(parts=[types.Part.from_text(content)]))
+            elif role == "assistant":
+                contents.append(types.ModelContent(parts=[types.Part.from_text(content)]))
+
+        # Bieżąca wiadomość użytkownika
+        contents.append(types.UserContent(parts=[types.Part.from_text(user_message)]))
+
+        return contents
+
+    def get_context_summary(self) -> str:
+        """Zwraca podsumowanie kontekstu (do logowania)"""
+        lines = ["=== Kontekst Promptu ==="]
+
+        if self.project_context:
+            lines.append(f"Projekt: {self.project_context.name}")
+            if self.project_context.tech_stack:
+                lines.append(f"Stack: {', '.join(self.project_context.tech_stack[:3])}")
+        else:
+            lines.append("Projekt: Brak")
+
+        lines.append(f"Historia: {len(self.conversation_history)} wiadomości")
+        lines.append(f"Sentyment: {self.current_sentiment} ({self.sentiment_confidence:.2f})")
+
+        return "\n".join(lines)
+
+
+class GeminiLLM:
+    """
+    Integracja z Google Gemini API.
+
+    Używa google-genai SDK.
+    """
+
+    MODEL = "gemini-2.0-flash"
+
+    def __init__(self, api_key: Optional[str] = None):
+        """
+        Inicjalizuje klienta Gemini.
+
+        Args:
+            api_key: Klucz API Google (GEMINI_API_KEY)
+        """
+        self.api_key = api_key or os.getenv("GEMINI_API_KEY", "")
+        self.client = None
+        self.prompt_builder = PromptBuilder()
+
+        if self.is_available():
+            self.client = genai.Client(api_key=self.api_key)
+            print(f"[LLM] Gemini client zainicjalizowany (model: {self.MODEL})")
+
+    def set_project(self, project: dict):
+        """Ustawia kontekst projektu"""
+        self.prompt_builder.set_project_context(project)
+
+    def set_history(self, history: List[dict]):
+        """Ustawia historię konwersacji"""
+        self.prompt_builder.set_conversation_history(history)
+
+    def set_sentiment(self, sentiment: str, confidence: float):
+        """Ustawia sentyment"""
+        self.prompt_builder.set_sentiment(sentiment, confidence)
+
+    def generate_response(self, user_message: str) -> LLMResponse:
+        """
+        Generuje odpowiedź na wiadomość użytkownika.
+
+        Args:
+            user_message: Wiadomość użytkownika (transkrypcja)
+
         Returns:
             LLMResponse z odpowiedzią
         """
-        pass
-    
-    @abstractmethod
-    def generate_stream(
-        self,
-        messages: list[Message],
-        project_context: Optional[ProjectContext] = None,
-        sentiment: Optional[str] = None,
-        max_tokens: int = 1024,
-        temperature: float = 0.7
-    ) -> Generator[str, None, None]:
-        """Generuje odpowiedź strumieniowo"""
-        pass
-    
-    @abstractmethod
-    def is_available(self) -> bool:
-        """Sprawdza czy dostawca jest dostępny"""
-        pass
-    
-    def build_system_prompt(
-        self,
-        project_context: Optional[ProjectContext] = None,
-        sentiment: Optional[str] = None
-    ) -> str:
-        """Buduje prompt systemowy"""
-        base_prompt = """Jesteś Rubber Duck Assistant - pomocnym asystentem dla programistów.
-Twoja rola to Senior Developer/Mentor który:
-- Pomaga w analizie logiki i rozwiązywaniu problemów
-- Sugeruje biblioteki i frameworki
-- Proponuje alternatywne wzorce projektowe  
-- Zadaje pytania naprowadzające, aby użytkownik sam doszedł do rozwiązania
-- Wspiera emocjonalnie w momentach frustracji
-
-Odpowiadaj po polsku, zwięźle ale pomocnie."""
-
-        parts = [base_prompt]
-        
-        if project_context:
-            parts.append(f"\n\nKONTEKST PROJEKTU:\n{project_context.to_prompt()}")
-        
-        if sentiment:
-            sentiment_instructions = {
-                "negative": "\n\nUżytkownik wydaje się sfrustrowany. Bądź empatyczny, uspokajający. Zasugeruj przerwę jeśli potrzebna.",
-                "positive": "\n\nUżytkownik jest pozytywnie nastawiony. Bądź konkretny i techniczny.",
-                "neutral": ""
-            }
-            parts.append(sentiment_instructions.get(sentiment, ""))
-        
-        return "".join(parts)
-
-
-class ClaudeLLM(LLMProvider):
-    """Implementacja LLM używająca Claude (Anthropic)"""
-    
-    def __init__(self, api_key: Optional[str] = None, model: str = "claude-3-sonnet-20240229"):
-        self.api_key = api_key
-        self.model = model
-        self.base_url = "https://api.anthropic.com/v1"
-    
-    def generate(
-        self,
-        messages: list[Message],
-        project_context: Optional[ProjectContext] = None,
-        sentiment: Optional[str] = None,
-        max_tokens: int = 1024,
-        temperature: float = 0.7
-    ) -> LLMResponse:
-        # TODO: Implementacja Claude API
-        raise NotImplementedError("Claude LLM nie jest jeszcze zaimplementowany")
-    
-    def generate_stream(
-        self,
-        messages: list[Message],
-        project_context: Optional[ProjectContext] = None,
-        sentiment: Optional[str] = None,
-        max_tokens: int = 1024,
-        temperature: float = 0.7
-    ) -> Generator[str, None, None]:
-        # TODO: Implementacja streamingu Claude API
-        raise NotImplementedError("Claude LLM streaming nie jest jeszcze zaimplementowany")
-    
-    def is_available(self) -> bool:
-        return bool(self.api_key)
-
-
-class GeminiLLM(LLMProvider):
-    """Implementacja LLM używająca Gemini (Google)"""
-    
-    def __init__(self, api_key: Optional[str] = None, model: str = "gemini-pro"):
-        self.api_key = api_key
-        self.model = model
-    
-    def generate(
-        self,
-        messages: list[Message],
-        project_context: Optional[ProjectContext] = None,
-        sentiment: Optional[str] = None,
-        max_tokens: int = 1024,
-        temperature: float = 0.7
-    ) -> LLMResponse:
-        # TODO: Implementacja Gemini API
-        raise NotImplementedError("Gemini LLM nie jest jeszcze zaimplementowany")
-    
-    def generate_stream(
-        self,
-        messages: list[Message],
-        project_context: Optional[ProjectContext] = None,
-        sentiment: Optional[str] = None,
-        max_tokens: int = 1024,
-        temperature: float = 0.7
-    ) -> Generator[str, None, None]:
-        # TODO: Implementacja streamingu Gemini API
-        raise NotImplementedError("Gemini LLM streaming nie jest jeszcze zaimplementowany")
-    
-    def is_available(self) -> bool:
-        return bool(self.api_key)
-
-
-class LLMManager:
-    """
-    Manager LLM - zarządza dostawcami i kontekstem konwersacji.
-    """
-    
-    def __init__(self):
-        self.providers: dict[str, LLMProvider] = {}
-        self.active_provider: Optional[str] = None
-        self.conversation_history: list[Message] = []
-        self.max_history_length: int = 20
-    
-    def register_provider(self, name: str, provider: LLMProvider):
-        """Rejestruje dostawcę LLM"""
-        self.providers[name] = provider
-    
-    def set_active_provider(self, name: str) -> bool:
-        """Ustawia aktywnego dostawcę"""
-        if name in self.providers and self.providers[name].is_available():
-            self.active_provider = name
-            return True
-        return False
-    
-    def chat(
-        self,
-        user_message: str,
-        project_context: Optional[ProjectContext] = None,
-        sentiment: Optional[str] = None
-    ) -> Optional[LLMResponse]:
-        """
-        Wysyła wiadomość i otrzymuje odpowiedź.
-        
-        Args:
-            user_message: Wiadomość użytkownika
-            project_context: Kontekst projektu
-            sentiment: Wykryty sentyment
-            
-        Returns:
-            LLMResponse lub None jeśli błąd
-        """
-        if not self.active_provider:
-            for name, provider in self.providers.items():
-                if provider.is_available():
-                    self.active_provider = name
-                    break
-        
-        if not self.active_provider:
-            return None
-        
-        provider = self.providers.get(self.active_provider)
-        if not provider:
-            return None
-        
-        # Dodaj wiadomość do historii
-        self.conversation_history.append(
-            Message(role=MessageRole.USER, content=user_message)
-        )
-        
-        # Ogranicz historię
-        if len(self.conversation_history) > self.max_history_length:
-            self.conversation_history = self.conversation_history[-self.max_history_length:]
-        
-        # Generuj odpowiedź
-        response = provider.generate(
-            messages=self.conversation_history,
-            project_context=project_context,
-            sentiment=sentiment
-        )
-        
-        if response.success:
-            self.conversation_history.append(
-                Message(role=MessageRole.ASSISTANT, content=response.content)
+        if not self.is_available():
+            return LLMResponse(
+                content="",
+                success=False,
+                error_message="Brak klucza API Gemini"
             )
-        
-        return response
-    
-    def clear_history(self):
-        """Czyści historię konwersacji"""
-        self.conversation_history = []
-    
-    def get_available_providers(self) -> list[str]:
-        """Zwraca listę dostępnych dostawców"""
-        return [name for name, p in self.providers.items() if p.is_available()]
+
+        if not self.client:
+            return LLMResponse(
+                content="",
+                success=False,
+                error_message="Klient Gemini nie zainicjalizowany"
+            )
+
+        try:
+            # Zbuduj system prompt
+            system_prompt = self.prompt_builder.build_system_prompt()
+
+            # Zbuduj contents z historią
+            contents = self.prompt_builder.build_contents_for_gemini(user_message)
+
+            # Debug
+            print(f"\n{self.prompt_builder.get_context_summary()}")
+            print(f"Wiadomość użytkownika: {user_message[:100]}...")
+
+            # Wywołaj API
+            response = self.client.models.generate_content(
+                model=self.MODEL,
+                contents=contents,
+                config=types.GenerateContentConfig(
+                    system_instruction=system_prompt,
+                    temperature=0.7,
+                    max_output_tokens=1024,
+                )
+            )
+
+            # Wyciągnij tekst odpowiedzi
+            response_text = response.text if response.text else ""
+
+            print(f"[LLM] Odpowiedź: {response_text[:100]}...")
+
+            return LLMResponse(
+                content=response_text,
+                success=True,
+                model=self.MODEL
+            )
+
+        except Exception as e:
+            error_msg = f"Błąd Gemini API: {str(e)}"
+            print(f"[LLM] {error_msg}")
+
+            return LLMResponse(
+                content="",
+                success=False,
+                error_message=error_msg
+            )
+
+    def is_available(self) -> bool:
+        """Sprawdza czy API key jest ustawiony"""
+        return bool(self.api_key and len(self.api_key) > 10)

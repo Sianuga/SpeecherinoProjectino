@@ -6,86 +6,61 @@ from .hotkey_manager import HotkeyManager
 from .app_controller import AppController
 from .dialogs import ProjectDialog, SettingsDialog
 
-# Nowe moduły AI
-from .stt_module import (
-    STTManager, 
-    STTProvider, 
-    WhisperSTT, 
-    GoogleSTT, 
-    LocalWhisperSTT,
-    TranscriptionResult
-)
-from .tts_module import (
-    TTSManager, 
-    TTSProvider, 
-    ElevenLabsTTS, 
-    GoogleTTS, 
-    LocalTTS,
-    VoiceConfig,
-    SynthesisResult
-)
-from .llm_module import (
-    LLMManager, 
-    LLMProvider, 
-    ClaudeLLM, 
-    GeminiLLM,
-    Message,
-    MessageRole,
-    ProjectContext,
-    LLMResponse
-)
+# STT - ElevenLabs
+from .stt_module import ElevenLabsSTT, TranscriptionResult
+
+# Sentiment - HerBERT
 from .sentiment_analyzer import (
-    SentimentManager,
-    SentimentAnalyzer,
-    KeywordSentimentAnalyzer,
     HerBERTSentimentAnalyzer,
     Sentiment,
     SentimentResult
 )
 
+# Conversation Store
+from .conversation_store import (
+    ConversationStore,
+    Session,
+    Message,
+    MessageRole
+)
+
+# LLM - Gemini
+from .llm_module import (
+    GeminiLLM,
+    PromptBuilder,
+    ProjectContext,
+    LLMResponse
+)
+
 __all__ = [
     # Core
     'ConfigManager',
-    'DuckWidget', 
+    'DuckWidget',
     'MainWindow',
     'AudioRecorder',
     'HotkeyManager',
     'AppController',
     'ProjectDialog',
     'SettingsDialog',
-    
+
     # STT
-    'STTManager',
-    'STTProvider',
-    'WhisperSTT',
-    'GoogleSTT',
-    'LocalWhisperSTT',
+    'ElevenLabsSTT',
     'TranscriptionResult',
-    
-    # TTS
-    'TTSManager',
-    'TTSProvider',
-    'ElevenLabsTTS',
-    'GoogleTTS',
-    'LocalTTS',
-    'VoiceConfig',
-    'SynthesisResult',
-    
-    # LLM
-    'LLMManager',
-    'LLMProvider',
-    'ClaudeLLM',
-    'GeminiLLM',
-    'Message',
-    'MessageRole',
-    'ProjectContext',
-    'LLMResponse',
-    
+
     # Sentiment
-    'SentimentManager',
-    'SentimentAnalyzer',
-    'KeywordSentimentAnalyzer',
     'HerBERTSentimentAnalyzer',
     'Sentiment',
     'SentimentResult',
+
+    # Conversation
+    'ConversationStore',
+    'Session',
+    'Message',
+    'MessageRole',
+
+    # LLM
+    'GeminiLLM',
+    'PromptBuilder',
+    'ProjectContext',
+    'LLMResponse',
 ]

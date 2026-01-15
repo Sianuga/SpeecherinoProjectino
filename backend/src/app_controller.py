@@ -1,130 +1,169 @@
+"""
+Główny kontroler aplikacji.
+Integruje: nagrywanie -> STT -> sentyment -> LLM -> zapis
+"""
+
 from PyQt6.QtCore import QObject, pyqtSignal, QThread
-from PyQt6.QtWidgets import QApplication
 from typing import Optional
-import time
 
 from .config_manager import ConfigManager
 from .audio_recorder import AudioRecorder
 from .hotkey_manager import HotkeyManager
 from .duck_widget import DuckWidget
 from .main_window import MainWindow
-
-# Nowe moduły (placeholdery)
-from .stt_module import STTManager, WhisperSTT, GoogleSTT
-from .tts_module import TTSManager, ElevenLabsTTS, GoogleTTS
-from .llm_module import LLMManager, ClaudeLLM, GeminiLLM, ProjectContext
-from .sentiment_analyzer import SentimentManager
+from .stt_module import ElevenLabsSTT
+from .sentiment_analyzer import HerBERTSentimentAnalyzer
+from .conversation_store import ConversationStore
+from .llm_module import GeminiLLM
 
 
 class ProcessingWorker(QThread):
     """Worker do przetwarzania audio w tle"""
-    finished = pyqtSignal(str)
+
+    transcription_ready = pyqtSignal(str)
+    sentiment_ready = pyqtSignal(str, float)
+    response_ready = pyqtSignal(str)
     error = pyqtSignal(str)
 
-    def __init__(self, audio_path: str, config_manager: ConfigManager,
-                 stt_manager: STTManager, llm_manager: LLMManager,
-                 sentiment_manager: SentimentManager):
+    def __init__(
+        self,
+        audio_path: str,
+        stt: ElevenLabsSTT,
+        sentiment_analyzer: HerBERTSentimentAnalyzer,
+        llm: GeminiLLM,
+        conversation_store: ConversationStore,
+        config_manager: ConfigManager
+    ):
         super().__init__()
         self.audio_path = audio_path
+        self.stt = stt
+        self.sentiment_analyzer = sentiment_analyzer
+        self.llm = llm
+        self.conversation_store = conversation_store
         self.config_manager = config_manager
-        self.stt_manager = stt_manager
-        self.llm_manager = llm_manager
-        self.sentiment_manager = sentiment_manager
 
     def run(self):
         try:
-            # TODO: Pełna implementacja pipeline'u
-            # 1. STT - transkrypcja audio
-            # 2. Analiza sentymentu
-            # 3. LLM - generowanie odpowiedzi
+            # === ETAP 1: Transkrypcja STT (ElevenLabs) ===
+            if not self.audio_path:
+                self.error.emit("Brak nagrania audio")
+                return
 
-            # Na razie symulacja
-            time.sleep(1)
+            stt_result = self.stt.transcribe(self.audio_path)
 
+            if not stt_result.success:
+                self.error.emit(f"STT: {stt_result.error_message}")
+                return
+
+            user_text = stt_result.text
+            self.transcription_ready.emit(user_text)
+            print(f"[Worker] Transkrypcja: {user_text}")
+
+            # === ETAP 2: Analiza sentymentu (HerBERT) ===
+            sentiment_result = self.sentiment_analyzer.analyze(user_text)
+            sentiment = sentiment_result.sentiment.value
+            confidence = sentiment_result.confidence
+
+            self.sentiment_ready.emit(sentiment, confidence)
+            print(f"[Worker] Sentyment: {sentiment} ({confidence:.2f})")
+
+            # === ETAP 3: Zapisz wiadomość użytkownika ===
+            self.conversation_store.add_user_message(
+                content=user_text,
+                audio_path=self.audio_path,
+                sentiment=sentiment,
+                sentiment_confidence=confidence
+            )
+
+            # === ETAP 4: Przygotuj kontekst dla LLM ===
             project = self.config_manager.get_active_project()
             if project:
-                response = f"Rozumiem twój problem w projekcie '{project['name']}'. "
-                response += "To ciekawe zagadnienie. Czy możesz mi powiedzieć więcej?"
-            else:
-                response = "Nie masz aktywnego projektu. Dodaj projekt w ustawieniach."
+                self.llm.set_project(project)
 
-            self.finished.emit(response)
+            # Historia (bez bieżącej wiadomości)
+            history = self.conversation_store.get_history_for_prompt(max_messages=10)
+            if history:
+                history = history[:-1]  # Usuń ostatnią (właśnie dodaną)
+            self.llm.set_history(history)
+
+            # Sentyment
+            self.llm.set_sentiment(sentiment, confidence)
+
+            # === ETAP 5: Generuj odpowiedź (Gemini) ===
+            llm_response = self.llm.generate_response(user_text)
+
+            if not llm_response.success:
+                self.error.emit(f"LLM: {llm_response.error_message}")
+                return
+
+            response_text = llm_response.content
+
+            # === ETAP 6: Zapisz odpowiedź asystenta ===
+            self.conversation_store.add_assistant_message(response_text)
+
+            self.response_ready.emit(response_text)
+            print(f"[Worker] Odpowiedź zapisana")
 
         except Exception as e:
-            self.error.emit(str(e))
+            import traceback
+            traceback.print_exc()
+            self.error.emit(f"Błąd: {str(e)}")
 
 
 class AppController(QObject):
-    """Główny kontroler łączący wszystkie komponenty"""
+    """Główny kontroler aplikacji"""
 
     listening_started = pyqtSignal()
     listening_stopped = pyqtSignal()
+    transcription_ready = pyqtSignal(str)
+    sentiment_ready = pyqtSignal(str, float)
     response_ready = pyqtSignal(str)
+    error_occurred = pyqtSignal(str)
 
     def __init__(self):
         super().__init__()
 
-        # Podstawowe komponenty
+        # Konfiguracja
         self.config_manager = ConfigManager()
+
+        # Audio
         self.audio_recorder = AudioRecorder()
         self.hotkey_manager = HotkeyManager()
 
-        # Nowe moduły AI
-        self.stt_manager = STTManager()
-        self.tts_manager = TTSManager()
-        self.llm_manager = LLMManager()
-        self.sentiment_manager = SentimentManager()
+        # AI Modules
+        api_keys = self.config_manager.config.get("api_keys", {})
+
+        # STT - ElevenLabs
+        self.stt = ElevenLabsSTT(api_key=api_keys.get("elevenlabs", ""))
+
+        # Sentiment - HerBERT
+        self.sentiment_analyzer = HerBERTSentimentAnalyzer()
+
+        # LLM - Gemini
+        self.llm = GeminiLLM(api_key=api_keys.get("google", ""))
+
+        # Przechowywanie konwersacji
+        self.conversation_store = ConversationStore()
 
         # UI
         self.duck_widget: Optional[DuckWidget] = None
         self.main_window: Optional[MainWindow] = None
         self.processing_worker: Optional[ProcessingWorker] = None
-
         self.is_listening = False
 
-        # Inicjalizacja modułów AI
-        self._setup_ai_modules()
+        self._print_status()
 
-    def _setup_ai_modules(self):
-        """Konfiguruje moduły AI na podstawie konfiguracji"""
-        api_keys = self.config_manager.config.get("api_keys", {})
-
-        # STT
-        self.stt_manager.register_provider(
-            "whisper",
-            WhisperSTT(api_key=api_keys.get("openai", ""))
-        )
-        self.stt_manager.register_provider(
-            "google",
-            GoogleSTT(api_key=api_keys.get("google", ""))
-        )
-
-        # TTS
-        self.tts_manager.register_provider(
-            "elevenlabs",
-            ElevenLabsTTS(api_key=api_keys.get("elevenlabs", ""))
-        )
-        self.tts_manager.register_provider(
-            "google",
-            GoogleTTS(api_key=api_keys.get("google", ""))
-        )
-
-        # LLM
-        self.llm_manager.register_provider(
-            "claude",
-            ClaudeLLM(api_key=api_keys.get("anthropic", ""))
-        )
-        self.llm_manager.register_provider(
-            "gemini",
-            GeminiLLM(api_key=api_keys.get("google", ""))
-        )
-
-        # Ustaw aktywnych dostawców na podstawie konfiguracji
-        llm_provider = self.config_manager.config.get("llm_provider", "claude")
-        self.llm_manager.set_active_provider(llm_provider)
+    def _print_status(self):
+        """Wyświetla status modułów"""
+        print("\n=== Status modułów ===")
+        print(f"STT (ElevenLabs): {'✓' if self.stt.is_available() else '✗'}")
+        print(f"Sentiment (HerBERT): {'✓' if self.sentiment_analyzer.is_available() else '✗'}")
+        print(f"LLM (Gemini): {'✓' if self.llm.is_available() else '✗'}")
+        print(f"Audio: {'✓' if self.audio_recorder.is_available() else '✗'}")
+        print("======================\n")
 
     def initialize(self):
-        """Inicjalizuje wszystkie komponenty UI"""
+        """Inicjalizuje komponenty UI"""
         duck_size = self.config_manager.config.get("duck_size", 120)
         self.duck_widget = DuckWidget(size=duck_size)
         self.duck_widget.clicked.connect(self.toggle_listening)
@@ -141,34 +180,34 @@ class AppController(QObject):
 
         self.listening_started.connect(self._on_listening_started)
         self.listening_stopped.connect(self._on_listening_stopped)
-        self.response_ready.connect(self._on_response_ready)
 
-        # Callbacks dla TTS
-        self.tts_manager.on_speaking_start = lambda: self.duck_widget.set_speaking(True)
-        self.tts_manager.on_speaking_end = lambda: self.duck_widget.set_idle()
+        # Rozpocznij sesję dla aktywnego projektu
+        self._start_session_for_active_project()
+
+    def _start_session_for_active_project(self):
+        """Rozpoczyna sesję konwersacji"""
+        project = self.config_manager.get_active_project()
+        project_name = project["name"] if project else "default"
+        self.conversation_store.start_session(project_name)
 
     def show(self):
-        """Pokazuje komponenty UI"""
+        """Pokazuje UI"""
         self.duck_widget.show()
         self.main_window.show()
 
     def _show_main_window(self):
-        """Pokazuje okno konfiguracji (wywołane podwójnym kliknięciem)"""
         if self.main_window:
             self.main_window.show_window()
 
     def _on_hotkey_press(self):
-        """Wywołane gdy skrót jest wciśnięty"""
         if not self.is_listening:
             self.start_listening()
 
     def _on_hotkey_release(self):
-        """Wywołane gdy skrót jest puszczony"""
         if self.is_listening:
             self.stop_listening()
 
     def toggle_listening(self):
-        """Przełącza stan nasłuchiwania (dla kliknięcia w kaczkę)"""
         if self.is_listening:
             self.stop_listening()
         else:
@@ -179,76 +218,99 @@ class AppController(QObject):
         if self.is_listening:
             return
 
-        success = self.audio_recorder.start_recording(
-            on_error=lambda e: print(f"Audio error: {e}")
+        print("\n[App] Rozpoczynam nagrywanie...")
+
+        self.audio_recorder.start_recording(
+            on_error=lambda e: print(f"[Audio] Błąd: {e}")
         )
 
-        if success:
-            self.is_listening = True
-            self.listening_started.emit()
-        else:
-            # Nawet bez audio, pokazujemy że "słuchamy" dla demo
-            self.is_listening = True
-            self.listening_started.emit()
+        self.is_listening = True
+        self.listening_started.emit()
 
     def stop_listening(self):
-        """Zatrzymuje nagrywanie i przetwarza"""
+        """Zatrzymuje nagrywanie i uruchamia przetwarzanie"""
         if not self.is_listening:
             return
+
+        print("[App] Zatrzymuję nagrywanie...")
 
         self.is_listening = False
         self.listening_stopped.emit()
 
         audio_path = self.audio_recorder.stop_recording()
 
-        # Przetwarzanie w tle
-        self.processing_worker = ProcessingWorker(
-            audio_path,
-            self.config_manager,
-            self.stt_manager,
-            self.llm_manager,
-            self.sentiment_manager
-        )
-        self.processing_worker.finished.connect(self._on_processing_finished)
-        self.processing_worker.error.connect(self._on_processing_error)
-        self.processing_worker.start()
+        if audio_path:
+            print(f"[App] Przetwarzam: {audio_path}")
+
+            self.processing_worker = ProcessingWorker(
+                audio_path=audio_path,
+                stt=self.stt,
+                sentiment_analyzer=self.sentiment_analyzer,
+                llm=self.llm,
+                conversation_store=self.conversation_store,
+                config_manager=self.config_manager
+            )
+            self.processing_worker.transcription_ready.connect(self._on_transcription_ready)
+            self.processing_worker.sentiment_ready.connect(self._on_sentiment_ready)
+            self.processing_worker.response_ready.connect(self._on_response_ready)
+            self.processing_worker.error.connect(self._on_error)
+            self.processing_worker.start()
+        else:
+            print("[App] Brak nagrania")
+            if self.duck_widget:
+                self.duck_widget.set_idle()
 
     def _on_listening_started(self):
-        """Aktualizuje UI gdy zaczyna nasłuchiwać"""
         if self.duck_widget:
             self.duck_widget.set_listening(True)
 
     def _on_listening_stopped(self):
-        """Aktualizuje UI gdy kończy nasłuchiwać"""
         if self.duck_widget:
             self.duck_widget.set_speaking(True)
 
-    def _on_processing_finished(self, response: str):
-        """Obsługuje odpowiedź z przetwarzania"""
+    def _on_transcription_ready(self, text: str):
+        print(f"[App] Transkrypcja gotowa")
+        self.transcription_ready.emit(text)
+
+    def _on_sentiment_ready(self, sentiment: str, confidence: float):
+        print(f"[App] Sentyment: {sentiment}")
+        self.sentiment_ready.emit(sentiment, confidence)
+
+    def _on_response_ready(self, response: str):
+        print(f"[App] Odpowiedź LLM gotowa")
         self.response_ready.emit(response)
 
-        # TTS - odtworzenie odpowiedzi głosem (jeśli włączone)
-        if self.config_manager.config.get("tts_enabled", True):
-            # TODO: self.tts_manager.speak(response)
-            pass
-
-        # Po "wypowiedzeniu" wracamy do idle
         if self.duck_widget:
             QThread.msleep(2000)
             self.duck_widget.set_idle()
 
-    def _on_processing_error(self, error: str):
-        """Obsługuje błąd przetwarzania"""
-        print(f"Processing error: {error}")
+    def _on_error(self, error: str):
+        print(f"[App] BŁĄD: {error}")
+        self.error_occurred.emit(error)
+
         if self.duck_widget:
             self.duck_widget.set_idle()
 
-    def _on_response_ready(self, response: str):
-        """Obsługuje gotową odpowiedź"""
-        print(f"Duck says: {response}")
+    def on_project_changed(self, project_name: str):
+        """Wywoływane gdy użytkownik zmienia projekt"""
+        self.conversation_store.end_session()
+        self.conversation_store.start_session(project_name)
+        print(f"[App] Zmieniono projekt: {project_name}")
 
     def cleanup(self):
         """Sprzątanie przed zamknięciem"""
+        print("[App] Zamykanie...")
+        self.conversation_store.end_session()
         self.hotkey_manager.stop()
+
         if self.audio_recorder.is_recording:
             self.audio_recorder.stop_recording()
+
+        self.audio_recorder.cleanup_old_recordings(max_age_hours=1)
+
+    def reload_api_keys(self):
+        """Przeładowuje klucze API"""
+        api_keys = self.config_manager.config.get("api_keys", {})
+        self.stt = ElevenLabsSTT(api_key=api_keys.get("elevenlabs", ""))
+        self.llm = GeminiLLM(api_key=api_keys.get("google", ""))
+        self._print_status()
