@@ -32,6 +32,12 @@ from .llm_module import (
     LLMResponse
 )
 
+# TTS - ElevenLabs
+from .tts_module import (
+    ElevenLabsTTS,
+    TTSResult
+)
+
 __all__ = [
     # Core
     'ConfigManager',
@@ -63,4 +69,8 @@ __all__ = [
     'PromptBuilder',
     'ProjectContext',
     'LLMResponse',
+
+    # TTS
+    'ElevenLabsTTS',
+    'TTSResult',
 ]

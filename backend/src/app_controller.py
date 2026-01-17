@@ -1,6 +1,6 @@
 """
 Główny kontroler aplikacji.
-Integruje: nagrywanie -> STT -> sentyment -> LLM -> zapis
+Integruje: nagrywanie -> STT -> sentyment -> LLM -> TTS -> zapis
 """
 
 from PyQt6.QtCore import QObject, pyqtSignal, QThread
@@ -15,6 +15,7 @@ from .stt_module import ElevenLabsSTT
 from .sentiment_analyzer import HerBERTSentimentAnalyzer
 from .conversation_store import ConversationStore
 from .llm_module import GeminiLLM
+from .tts_module import ElevenLabsTTS
 
 
 class ProcessingWorker(QThread):
@@ -23,6 +24,8 @@ class ProcessingWorker(QThread):
     transcription_ready = pyqtSignal(str)
     sentiment_ready = pyqtSignal(str, float)
     response_ready = pyqtSignal(str)
+    speaking_started = pyqtSignal()
+    speaking_finished = pyqtSignal()
     error = pyqtSignal(str)
 
     def __init__(
@@ -31,6 +34,7 @@ class ProcessingWorker(QThread):
         stt: ElevenLabsSTT,
         sentiment_analyzer: HerBERTSentimentAnalyzer,
         llm: GeminiLLM,
+        tts: ElevenLabsTTS,
         conversation_store: ConversationStore,
         config_manager: ConfigManager
     ):
@@ -39,6 +43,7 @@ class ProcessingWorker(QThread):
         self.stt = stt
         self.sentiment_analyzer = sentiment_analyzer
         self.llm = llm
+        self.tts = tts
         self.conversation_store = conversation_store
         self.config_manager = config_manager
 
@@ -104,6 +109,22 @@ class ProcessingWorker(QThread):
             self.response_ready.emit(response_text)
             print(f"[Worker] Odpowiedź zapisana")
 
+            # === ETAP 7: Text-to-Speech (ElevenLabs) ===
+            if self.tts.is_available() and self.config_manager.config.get("tts_enabled", True):
+                self.speaking_started.emit()
+                print(f"[Worker] Rozpoczynam TTS...")
+
+                tts_result = self.tts.speak(response_text, use_streaming=True)
+
+                if not tts_result.success:
+                    print(f"[Worker] TTS błąd: {tts_result.error_message}")
+
+                self.speaking_finished.emit()
+                print(f"[Worker] TTS zakończony")
+            else:
+                print(f"[Worker] TTS wyłączony lub niedostępny")
+                self.speaking_finished.emit()
+
         except Exception as e:
             import traceback
             traceback.print_exc()
@@ -118,6 +139,8 @@ class AppController(QObject):
     transcription_ready = pyqtSignal(str)
     sentiment_ready = pyqtSignal(str, float)
     response_ready = pyqtSignal(str)
+    speaking_started = pyqtSignal()
+    speaking_finished = pyqtSignal()
     error_occurred = pyqtSignal(str)
 
     def __init__(self):
@@ -142,6 +165,9 @@ class AppController(QObject):
         # LLM - Gemini
         self.llm = GeminiLLM(api_key=api_keys.get("google", ""))
 
+        # TTS - ElevenLabs
+        self.tts = ElevenLabsTTS(api_key=api_keys.get("elevenlabs", ""))
+
         # Przechowywanie konwersacji
         self.conversation_store = ConversationStore()
 
@@ -159,6 +185,7 @@ class AppController(QObject):
         print(f"STT (ElevenLabs): {'✓' if self.stt.is_available() else '✗'}")
         print(f"Sentiment (HerBERT): {'✓' if self.sentiment_analyzer.is_available() else '✗'}")
         print(f"LLM (Gemini): {'✓' if self.llm.is_available() else '✗'}")
+        print(f"TTS (ElevenLabs): {'✓' if self.tts.is_available() else '✗'}")
         print(f"Audio: {'✓' if self.audio_recorder.is_available() else '✗'}")
         print("======================\n")
 
@@ -247,12 +274,15 @@ class AppController(QObject):
                 stt=self.stt,
                 sentiment_analyzer=self.sentiment_analyzer,
                 llm=self.llm,
+                tts=self.tts,
                 conversation_store=self.conversation_store,
                 config_manager=self.config_manager
             )
             self.processing_worker.transcription_ready.connect(self._on_transcription_ready)
             self.processing_worker.sentiment_ready.connect(self._on_sentiment_ready)
             self.processing_worker.response_ready.connect(self._on_response_ready)
+            self.processing_worker.speaking_started.connect(self._on_speaking_started)
+            self.processing_worker.speaking_finished.connect(self._on_speaking_finished)
             self.processing_worker.error.connect(self._on_error)
             self.processing_worker.start()
         else:
@@ -266,6 +296,7 @@ class AppController(QObject):
 
     def _on_listening_stopped(self):
         if self.duck_widget:
+            # Ustawiamy "thinking" - przetwarzanie
             self.duck_widget.set_speaking(True)
 
     def _on_transcription_ready(self, text: str):
@@ -280,8 +311,16 @@ class AppController(QObject):
         print(f"[App] Odpowiedź LLM gotowa")
         self.response_ready.emit(response)
 
+    def _on_speaking_started(self):
+        print(f"[App] TTS rozpoczęty")
+        self.speaking_started.emit()
         if self.duck_widget:
-            QThread.msleep(2000)
+            self.duck_widget.set_speaking(True)
+
+    def _on_speaking_finished(self):
+        print(f"[App] TTS zakończony")
+        self.speaking_finished.emit()
+        if self.duck_widget:
             self.duck_widget.set_idle()
 
     def _on_error(self, error: str):
@@ -313,4 +352,5 @@ class AppController(QObject):
         api_keys = self.config_manager.config.get("api_keys", {})
         self.stt = ElevenLabsSTT(api_key=api_keys.get("elevenlabs", ""))
         self.llm = GeminiLLM(api_key=api_keys.get("google", ""))
+        self.tts = ElevenLabsTTS(api_key=api_keys.get("elevenlabs", ""))
         self._print_status()

@@ -138,6 +138,13 @@ Użytkownik jest pozytywnie nastawiony - możesz być bardziej bezpośredni.""",
         """
         Buduje listę contents dla Gemini API.
 
+        Historia z conversation_store ma format:
+        [{"role": "user", "content": "..."}, {"role": "assistant", "content": "..."}]
+
+        Gemini API wymaga:
+        - role: "user" lub "model" (nie "assistant")
+        - parts: lista obiektów Part
+
         Args:
             user_message: Bieżąca wiadomość użytkownika
 
@@ -151,13 +158,24 @@ Użytkownik jest pozytywnie nastawiony - możesz być bardziej bezpośredni.""",
             role = msg["role"]
             content = msg["content"]
 
-            if role == "user":
-                contents.append(types.UserContent(parts=[types.Part.from_text(content)]))
-            elif role == "assistant":
-                contents.append(types.ModelContent(parts=[types.Part.from_text(content)]))
+            # Gemini używa "model" zamiast "assistant"
+            gemini_role = "model" if role == "assistant" else "user"
+
+            # Prawidłowy sposób tworzenia Content w google-genai SDK
+            contents.append(
+                types.Content(
+                    role=gemini_role,
+                    parts=[types.Part(text=content)]
+                )
+            )
 
         # Bieżąca wiadomość użytkownika
-        contents.append(types.UserContent(parts=[types.Part.from_text(user_message)]))
+        contents.append(
+            types.Content(
+                role="user",
+                parts=[types.Part(text=user_message)]
+            )
+        )
 
         return contents
 
@@ -185,7 +203,7 @@ class GeminiLLM:
     Używa google-genai SDK.
     """
 
-    MODEL = "gemini-2.0-flash"
+    MODEL = "gemini-2.5-flash-lite"
 
     def __init__(self, api_key: Optional[str] = None):
         """
@@ -194,7 +212,7 @@ class GeminiLLM:
         Args:
             api_key: Klucz API Google (GEMINI_API_KEY)
         """
-        self.api_key = api_key or os.getenv("GEMINI_API_KEY", "")
+        self.api_key = api_key or os.getenv("GEMINI_API_KEY", "") or os.getenv("GOOGLE_API_KEY", "")
         self.client = None
         self.prompt_builder = PromptBuilder()
 
@@ -242,7 +260,7 @@ class GeminiLLM:
             # Zbuduj system prompt
             system_prompt = self.prompt_builder.build_system_prompt()
 
-            # Zbuduj contents z historią
+            # Zbuduj contents z historią (używa istniejącej metody)
             contents = self.prompt_builder.build_contents_for_gemini(user_message)
 
             # Debug
@@ -274,6 +292,9 @@ class GeminiLLM:
         except Exception as e:
             error_msg = f"Błąd Gemini API: {str(e)}"
             print(f"[LLM] {error_msg}")
+
+            import traceback
+            traceback.print_exc()
 
             return LLMResponse(
                 content="",
